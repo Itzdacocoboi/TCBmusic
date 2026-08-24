@@ -80,15 +80,17 @@
     .controls { display: flex; justify-content: center; gap: 12px; margin: 12px 0; }
     .progress-container, .volume-container { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #aaa; margin-top: 8px; }
     input[type="range"] { flex: 1; accent-color: #1db954; cursor: pointer; }
-    audio { display: none; }
+    
+    /* Hidden Audio Stream Container */
+    #audio-container { display: none; }
   </style>
 </head>
 <body>
 
   <div class="card">
     <div class="search-box">
-      <input type="text" id="query" placeholder="Type song name or paste link..." onkeydown="if(event.key==='Enter') searchMusic()">
-      <button onclick="searchMusic()">Search</button>
+      <input type="text" id="query" placeholder="Search song or paste link..." onkeydown="if(event.key==='Enter') handleInput()">
+      <button onclick="handleInput()">Search</button>
     </div>
 
     <div id="results" class="results-list"></div>
@@ -112,89 +114,80 @@
     </div>
   </div>
 
-  <audio id="audioEngine"></audio>
+  <div id="audio-container"></div>
 
   <script>
-    const audio = document.getElementById('audioEngine');
+    let audio = new Audio();
     const playBtn = document.getElementById('playBtn');
 
-    // Uses Piped public API proxies to strip ads and pull audio search
-    const PROXIES = [
-      "https://pipedapi.kavin.rocks",
-      "https://api.piped.privacydev.net",
-      "https://pipedapi.mha.fi"
-    ];
+    // CORS proxy wrapper to prevent browser security blocks
+    const CORS_PROXY = "https://corsproxy.io/?";
+    const INVIDIOUS_INSTANCE = "https://yewtu.be";
 
-    async function searchMusic() {
+    async function handleInput() {
       const q = document.getElementById('query').value.trim();
       const resultsDiv = document.getElementById('results');
       if (!q) return;
 
-      // Check if user pasted a direct YouTube URL instead of a search term
-      let directId = "";
-      if (q.includes('v=')) directId = q.split('v=')[1].split('&')[0];
-      else if (q.includes('youtu.be/')) directId = q.split('youtu.be/')[1].split('?')[0];
+      // Check if user pasted a YouTube URL or direct ID
+      let videoId = "";
+      if (q.includes('v=')) videoId = q.split('v=')[1].split('&')[0];
+      else if (q.includes('youtu.be/')) videoId = q.split('youtu.be/')[1].split('?')[0];
+      else if (q.length === 11 && !q.includes(' ')) videoId = q;
 
-      if (directId) {
-        selectSong(directId, "Pasted YouTube Track");
+      if (videoId) {
+        resultsDiv.style.display = "none";
+        playSong(videoId, "Loaded Track");
         return;
       }
 
+      // Perform search via CORS Proxy
       resultsDiv.style.display = "block";
       resultsDiv.innerHTML = "<div style='padding:10px; font-size:12px;'>Searching songs...</div>";
 
-      let data = null;
-      for (const proxy of PROXIES) {
-        try {
-          const res = await fetch(`${proxy}/search?q=${encodeURIComponent(q)}&filter=music_songs`);
-          if (res.ok) {
-            data = await res.json();
-            break;
-          }
-        } catch (e) {}
-      }
+      try {
+        const searchUrl = `${CORS_PROXY}${encodeURIComponent(`${INVIDIOUS_INSTANCE}/api/v1/search?q=${encodeURIComponent(q)}&type=video`)}`;
+        const res = await fetch(searchUrl);
+        const data = await res.json();
 
-      if (!data || !data.items || data.items.length === 0) {
-        resultsDiv.innerHTML = "<div style='padding:10px; font-size:12px; color:#ff5555;'>Search failed. Try pasting a full YouTube link instead.</div>";
-        return;
-      }
+        if (!data || data.length === 0) {
+          resultsDiv.innerHTML = "<div style='padding:10px; font-size:12px;'>No songs found. Try a different term.</div>";
+          return;
+        }
 
-      resultsDiv.innerHTML = "";
-      data.items.slice(0, 6).forEach(item => {
-        if (!item.url) return;
-        const id = item.url.replace("/watch?v=", "");
-        const div = document.createElement('div');
-        div.className = 'result-item';
-        div.onclick = () => selectSong(id, item.title);
-        div.innerHTML = `
-          <img src="https://img.youtube.com/vi/${id}/hqdefault.jpg">
-          <div class="result-title">${item.title}</div>
-        `;
-        resultsDiv.appendChild(div);
-      });
+        resultsDiv.innerHTML = "";
+        data.slice(0, 6).forEach(item => {
+          const div = document.createElement('div');
+          div.className = 'result-item';
+          div.onclick = () => {
+            resultsDiv.style.display = "none";
+            playSong(item.videoId, item.title);
+          };
+          div.innerHTML = `
+            <img src="https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg">
+            <div class="result-title">${item.title}</div>
+          `;
+          resultsDiv.appendChild(div);
+        });
+      } catch (err) {
+        resultsDiv.innerHTML = "<div style='padding:10px; font-size:12px; color:#ff5555;'>Search blocked. Paste full YouTube URL instead.</div>";
+      }
     }
 
-    function selectSong(id, title) {
-      document.getElementById('results').style.display = "none";
+    function playSong(id, title) {
       document.getElementById('trackTitle').innerText = title;
       document.getElementById('coverArt').src = `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
 
-      // Audio-only stream endpoint: Completely strips out YouTube video ads
-      audio.src = `https://pipedapi.kavin.rocks/streams/${id}`;
-      
-      // Fetch direct audio file link
-      fetch(`https://pipedapi.kavin.rocks/streams/${id}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.audioStreams && data.audioStreams.length > 0) {
-            audio.src = data.audioStreams[0].url; // Highest quality ad-free audio stream
-            audio.play();
-            playBtn.innerText = "⏸ Pause";
-          }
-        })
-        .catch(() => {
-          alert("Could not load audio for this track. Try another song.");
-        });
+      // Bypasses YouTube ads by routing through direct Invidious audio streams
+      audio.src = `${CORS_PROXY}${encodeURIComponent(`${INVIDIOUS_INSTANCE}/latest_version?id=${id}&italic=true`)}`;
+      audio.play().then(() => {
+        playBtn.innerText = "⏸ Pause";
+      }).catch(err => {
+        // Fallback stream route if proxy fails
+        audio.src = `https://yewtu.be/latest_version?id=${id}&italic=true`;
+        audio.play();
+        playBtn.innerText = "⏸ Pause";
+      });
     }
 
     function togglePlay() {
