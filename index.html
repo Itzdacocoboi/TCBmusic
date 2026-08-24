@@ -3,24 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>TCB Music Player</title>
   <style>
     body {
       background-color: #121212;
       color: #ffffff;
-      font-family: 'Segoe UI', Arial, sans-serif;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       display: flex;
       justify-content: center;
       align-items: center;
       min-height: 100vh;
       margin: 0;
-      padding: 20px;
     }
-    .app-card {
+    .player-card {
       background: #181818;
-      padding: 20px;
+      padding: 24px;
       border-radius: 16px;
-      width: 360px;
+      width: 320px;
+      text-align: center;
       box-shadow: 0 8px 24px rgba(0,0,0,0.6);
     }
     .search-box {
@@ -46,160 +47,151 @@
       cursor: pointer;
     }
     button:hover { background: #1ed760; }
-    
-    /* Search Results List */
-    .results-list {
-      max-height: 200px;
-      overflow-y: auto;
-      margin-bottom: 16px;
-      background: #222;
-      border-radius: 8px;
-      display: none;
-    }
-    .result-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px;
-      cursor: pointer;
-      border-bottom: 1px solid #333;
-    }
-    .result-item:hover { background: #333; }
-    .result-item img { width: 50px; height: 38px; border-radius: 4px; object-fit: cover; }
-    .result-info { text-align: left; overflow: hidden; }
-    .result-title { font-size: 13px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .result-author { font-size: 11px; color: #aaa; }
-
-    /* Player View */
-    .now-playing { text-align: center; }
     .thumbnail {
       width: 100%;
-      height: 200px;
+      height: 220px;
       object-fit: cover;
       border-radius: 12px;
       background: #282828;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
-    .track-title { font-size: 15px; margin: 6px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    
-    .controls { display: flex; justify-content: center; gap: 12px; margin: 12px 0; }
-    .progress-container, .volume-container { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #aaa; }
-    input[type="range"] { flex: 1; accent-color: #1db954; cursor: pointer; }
-    audio { display: none; }
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin: 15px 0;
+    }
+    .progress-container, .volume-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #aaa;
+      margin-top: 8px;
+    }
+    input[type="range"] {
+      flex: 1;
+      accent-color: #1db954;
+      cursor: pointer;
+    }
+    #hidden-player {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      overflow: hidden;
+    }
   </style>
 </head>
 <body>
 
-  <div class="app-card">
-    <!-- Search Inputs -->
+  <div class="player-card">
     <div class="search-box">
-      <input type="text" id="query" placeholder="Search for a song or artist..." onkeydown="if(event.key==='Enter') searchMusic()">
-      <button onclick="searchMusic()">Search</button>
+      <input type="text" id="searchInput" placeholder="Paste YouTube Link or Video ID...">
+      <button onclick="loadMedia()">Load</button>
     </div>
 
-    <!-- Search Results Dropdown -->
-    <div id="results" class="results-list"></div>
+    <img id="coverArt" class="thumbnail" src="https://via.placeholder.com/320x220/282828/FFFFFF?text=Paste+YouTube+Link" alt="Album Cover">
+    
+    <h3 id="trackTitle" style="margin: 8px 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No Audio Loaded</h3>
 
-    <!-- Player Screen -->
-    <div class="now-playing">
-      <img id="coverArt" class="thumbnail" src="https://via.placeholder.com/320x200/282828/FFFFFF?text=Search+a+Song" alt="Album Cover">
-      <div id="trackTitle" class="track-title">No Song Selected</div>
-      <div id="trackAuthor" style="font-size: 12px; color: #888; margin-bottom: 10px;"></div>
+    <div class="controls">
+      <button onclick="playAudio()">▶ Play</button>
+      <button onclick="pauseAudio()">⏸ Pause</button>
+    </div>
 
-      <!-- Controls -->
-      <div class="controls">
-        <button onclick="togglePlay()" id="playBtn">▶ Play</button>
-      </div>
+    <div class="progress-container">
+      <span id="currentTime">0:00</span>
+      <input type="range" id="seekBar" value="0" max="100" onchange="seekAudio(this.value)">
+      <span id="duration">0:00</span>
+    </div>
 
-      <!-- Seek Bar -->
-      <div class="progress-container">
-        <span id="currentTime">0:00</span>
-        <input type="range" id="seekBar" value="0" max="100" onchange="seekAudio(this.value)">
-        <span id="duration">0:00</span>
-      </div>
-
-      <!-- Volume Bar -->
-      <div class="volume-container" style="margin-top: 10px;">
-        <span>🔊</span>
-        <input type="range" id="volumeBar" value="100" max="100" onchange="setVolume(this.value)">
-      </div>
+    <div class="volume-container">
+      <span>🔊</span>
+      <input type="range" id="volumeBar" value="100" max="100" onchange="setVolume(this.value)">
     </div>
   </div>
 
-  <!-- Hidden Native Audio Engine -->
-  <audio id="audioEngine"></audio>
+  <div id="hidden-player"></div>
 
   <script>
-    const audio = document.getElementById('audioEngine');
-    const playBtn = document.getElementById('playBtn');
+    let player;
+    let updateInterval;
 
-    // Public Invidious API Mirror for searching without Google API keys
-    const API_INSTANCE = "https://yewtu.be";
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-    async function searchMusic() {
-      const q = document.getElementById('query').value.trim();
-      const resultsDiv = document.getElementById('results');
-      if (!q) return;
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('hidden-player', {
+        height: '1',
+        width: '1',
+        playerVars: {
+          'autoplay': 0,
+          'controls': 0,
+          'rel': 0
+        },
+        events: {
+          'onStateChange': onPlayerStateChange
+        }
+      });
+    }
 
-      resultsDiv.style.display = "block";
-      resultsDiv.innerHTML = "<div style='padding:10px; font-size:12px;'>Searching...</div>";
+    function loadMedia() {
+      const input = document.getElementById('searchInput').value.trim();
+      let videoId = input;
 
-      try {
-        const response = await fetch(`${API_INSTANCE}/api/v1/search?q=${encodeURIComponent(q)}&type=video`);
-        const data = await response.json();
+      if (input.includes('v=')) {
+        videoId = input.split('v=')[1].split('&')[0];
+      } else if (input.includes('youtu.be/')) {
+        videoId = input.split('youtu.be/')[1].split('?')[0];
+      }
 
-        resultsDiv.innerHTML = "";
-        data.slice(0, 8).forEach(item => {
-          const div = document.createElement('div');
-          div.className = 'result-item';
-          div.onclick = () => selectSong(item.videoId, item.title, item.author, item.videoThumbnails);
-          div.innerHTML = `
-            <img src="${item.videoThumbnails ? item.videoThumbnails[0].url : ''}">
-            <div class="result-info">
-              <div class="result-title">${item.title}</div>
-              <div class="result-author">${item.author}</div>
-            </div>
-          `;
-          resultsDiv.appendChild(div);
-        });
-      } catch (err) {
-        resultsDiv.innerHTML = "<div style='padding:10px; font-size:12px; color:#ff5555;'>Search blocked or unavailable. Try pasting URL.</div>";
+      if (videoId && player) {
+        document.getElementById('coverArt').src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+        document.getElementById('trackTitle').innerText = "Loading Track...";
+        player.loadVideoById(videoId);
       }
     }
 
-    function selectSong(id, title, author) {
-      document.getElementById('results').style.display = "none";
-      document.getElementById('trackTitle').innerText = title;
-      document.getElementById('trackAuthor').innerText = author;
-      document.getElementById('coverArt').src = `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
-
-      // Streaming directly from audio source removes YouTube Ads completely
-      audio.src = `${API_INSTANCE}/latest_version?id=${id}&italic=true`;
-      audio.play();
-      playBtn.innerText = "⏸ Pause";
+    function playAudio() { if (player && player.playVideo) player.playVideo(); }
+    function pauseAudio() { if (player && player.pauseVideo) player.pauseVideo(); }
+    
+    function setVolume(val) {
+      if (player && player.setVolume) player.setVolume(val);
     }
 
-    function togglePlay() {
-      if (!audio.src) return;
-      if (audio.paused) {
-        audio.play();
-        playBtn.innerText = "⏸ Pause";
+    function seekAudio(val) {
+      if (player && player.getDuration) {
+        const seekToTime = (player.getDuration() * val) / 100;
+        player.seekTo(seekToTime, true);
+      }
+    }
+
+    function onPlayerStateChange(event) {
+      if (event.data === YT.PlayerState.PLAYING) {
+        document.getElementById('trackTitle').innerText = player.getVideoData().title || "Audio Playing";
+        startProgressLoop();
       } else {
-        audio.pause();
-        playBtn.innerText = "▶ Play";
+        clearInterval(updateInterval);
       }
     }
 
-    function setVolume(val) { audio.volume = val / 100; }
-    function seekAudio(val) { if (audio.duration) audio.currentTime = (audio.duration * val) / 100; }
-
-    audio.ontimeupdate = () => {
-      if (audio.duration) {
-        document.getElementById('seekBar').value = (audio.currentTime / audio.duration) * 100;
-        document.getElementById('currentTime').innerText = formatTime(audio.currentTime);
-        document.getElementById('duration').innerText = formatTime(audio.duration);
-      }
-    };
+    function startProgressLoop() {
+      clearInterval(updateInterval);
+      updateInterval = setInterval(() => {
+        if (player && player.getCurrentTime) {
+          const current = player.getCurrentTime();
+          const total = player.getDuration();
+          if (total > 0) {
+            document.getElementById('seekBar').value = (current / total) * 100;
+            document.getElementById('currentTime').innerText = formatTime(current);
+            document.getElementById('duration').innerText = formatTime(total);
+          }
+        }
+      }, 1000);
+    }
 
     function formatTime(sec) {
       const m = Math.floor(sec / 60);
