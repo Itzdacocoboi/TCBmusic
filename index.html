@@ -3,31 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>TCB Music Player</title>
   <style>
     body {
       background-color: #121212;
       color: #ffffff;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: Arial, sans-serif;
       display: flex;
       justify-content: center;
       align-items: center;
       min-height: 100vh;
       margin: 0;
+      padding: 20px;
     }
-    .player-card {
+    .card {
       background: #181818;
-      padding: 24px;
+      padding: 20px;
       border-radius: 16px;
-      width: 320px;
+      width: 340px;
       text-align: center;
       box-shadow: 0 8px 24px rgba(0,0,0,0.6);
     }
     .search-box {
       display: flex;
       gap: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
     }
     input[type="text"] {
       flex: 1;
@@ -47,57 +47,57 @@
       cursor: pointer;
     }
     button:hover { background: #1ed760; }
+    
+    .results-list {
+      max-height: 180px;
+      overflow-y: auto;
+      margin-bottom: 12px;
+      background: #222;
+      border-radius: 8px;
+      display: none;
+      text-align: left;
+    }
+    .result-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px;
+      cursor: pointer;
+      border-bottom: 1px solid #333;
+    }
+    .result-item:hover { background: #333; }
+    .result-item img { width: 45px; height: 35px; border-radius: 4px; object-fit: cover; }
+    .result-title { font-size: 12px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
     .thumbnail {
       width: 100%;
-      height: 220px;
+      height: 200px;
       object-fit: cover;
       border-radius: 12px;
       background: #282828;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
-    .controls {
-      display: flex;
-      justify-content: center;
-      gap: 12px;
-      margin: 15px 0;
-    }
-    .progress-container, .volume-container {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: #aaa;
-      margin-top: 8px;
-    }
-    input[type="range"] {
-      flex: 1;
-      accent-color: #1db954;
-      cursor: pointer;
-    }
-    #hidden-player {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      opacity: 0;
-      overflow: hidden;
-    }
+    .controls { display: flex; justify-content: center; gap: 12px; margin: 12px 0; }
+    .progress-container, .volume-container { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #aaa; margin-top: 8px; }
+    input[type="range"] { flex: 1; accent-color: #1db954; cursor: pointer; }
+    audio { display: none; }
   </style>
 </head>
 <body>
 
-  <div class="player-card">
+  <div class="card">
     <div class="search-box">
-      <input type="text" id="searchInput" placeholder="Paste YouTube Link or Video ID...">
-      <button onclick="loadMedia()">Load</button>
+      <input type="text" id="query" placeholder="Type song name or paste link..." onkeydown="if(event.key==='Enter') searchMusic()">
+      <button onclick="searchMusic()">Search</button>
     </div>
 
-    <img id="coverArt" class="thumbnail" src="https://via.placeholder.com/320x220/282828/FFFFFF?text=Paste+YouTube+Link" alt="Album Cover">
-    
-    <h3 id="trackTitle" style="margin: 8px 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No Audio Loaded</h3>
+    <div id="results" class="results-list"></div>
+
+    <img id="coverArt" class="thumbnail" src="https://via.placeholder.com/320x200/282828/FFFFFF?text=Search+or+Paste+Link" alt="Cover">
+    <div id="trackTitle" style="font-size: 14px; font-weight: bold; margin: 6px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No Song Selected</div>
 
     <div class="controls">
-      <button onclick="playAudio()">▶ Play</button>
-      <button onclick="pauseAudio()">⏸ Pause</button>
+      <button onclick="togglePlay()" id="playBtn">▶ Play</button>
     </div>
 
     <div class="progress-container">
@@ -112,86 +112,112 @@
     </div>
   </div>
 
-  <div id="hidden-player"></div>
+  <audio id="audioEngine"></audio>
 
   <script>
-    let player;
-    let updateInterval;
+    const audio = document.getElementById('audioEngine');
+    const playBtn = document.getElementById('playBtn');
 
-    const tag = document.createElement('script');
-    tag.src = "https://www.youtube.com/iframe_api";
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    // Uses Piped public API proxies to strip ads and pull audio search
+    const PROXIES = [
+      "https://pipedapi.kavin.rocks",
+      "https://api.piped.privacydev.net",
+      "https://pipedapi.mha.fi"
+    ];
 
-    function onYouTubeIframeAPIReady() {
-      player = new YT.Player('hidden-player', {
-        height: '1',
-        width: '1',
-        playerVars: {
-          'autoplay': 0,
-          'controls': 0,
-          'rel': 0
-        },
-        events: {
-          'onStateChange': onPlayerStateChange
-        }
+    async function searchMusic() {
+      const q = document.getElementById('query').value.trim();
+      const resultsDiv = document.getElementById('results');
+      if (!q) return;
+
+      // Check if user pasted a direct YouTube URL instead of a search term
+      let directId = "";
+      if (q.includes('v=')) directId = q.split('v=')[1].split('&')[0];
+      else if (q.includes('youtu.be/')) directId = q.split('youtu.be/')[1].split('?')[0];
+
+      if (directId) {
+        selectSong(directId, "Pasted YouTube Track");
+        return;
+      }
+
+      resultsDiv.style.display = "block";
+      resultsDiv.innerHTML = "<div style='padding:10px; font-size:12px;'>Searching songs...</div>";
+
+      let data = null;
+      for (const proxy of PROXIES) {
+        try {
+          const res = await fetch(`${proxy}/search?q=${encodeURIComponent(q)}&filter=music_songs`);
+          if (res.ok) {
+            data = await res.json();
+            break;
+          }
+        } catch (e) {}
+      }
+
+      if (!data || !data.items || data.items.length === 0) {
+        resultsDiv.innerHTML = "<div style='padding:10px; font-size:12px; color:#ff5555;'>Search failed. Try pasting a full YouTube link instead.</div>";
+        return;
+      }
+
+      resultsDiv.innerHTML = "";
+      data.items.slice(0, 6).forEach(item => {
+        if (!item.url) return;
+        const id = item.url.replace("/watch?v=", "");
+        const div = document.createElement('div');
+        div.className = 'result-item';
+        div.onclick = () => selectSong(id, item.title);
+        div.innerHTML = `
+          <img src="https://img.youtube.com/vi/${id}/hqdefault.jpg">
+          <div class="result-title">${item.title}</div>
+        `;
+        resultsDiv.appendChild(div);
       });
     }
 
-    function loadMedia() {
-      const input = document.getElementById('searchInput').value.trim();
-      let videoId = input;
+    function selectSong(id, title) {
+      document.getElementById('results').style.display = "none";
+      document.getElementById('trackTitle').innerText = title;
+      document.getElementById('coverArt').src = `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
 
-      if (input.includes('v=')) {
-        videoId = input.split('v=')[1].split('&')[0];
-      } else if (input.includes('youtu.be/')) {
-        videoId = input.split('youtu.be/')[1].split('?')[0];
-      }
-
-      if (videoId && player) {
-        document.getElementById('coverArt').src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-        document.getElementById('trackTitle').innerText = "Loading Track...";
-        player.loadVideoById(videoId);
-      }
-    }
-
-    function playAudio() { if (player && player.playVideo) player.playVideo(); }
-    function pauseAudio() { if (player && player.pauseVideo) player.pauseVideo(); }
-    
-    function setVolume(val) {
-      if (player && player.setVolume) player.setVolume(val);
-    }
-
-    function seekAudio(val) {
-      if (player && player.getDuration) {
-        const seekToTime = (player.getDuration() * val) / 100;
-        player.seekTo(seekToTime, true);
-      }
-    }
-
-    function onPlayerStateChange(event) {
-      if (event.data === YT.PlayerState.PLAYING) {
-        document.getElementById('trackTitle').innerText = player.getVideoData().title || "Audio Playing";
-        startProgressLoop();
-      } else {
-        clearInterval(updateInterval);
-      }
-    }
-
-    function startProgressLoop() {
-      clearInterval(updateInterval);
-      updateInterval = setInterval(() => {
-        if (player && player.getCurrentTime) {
-          const current = player.getCurrentTime();
-          const total = player.getDuration();
-          if (total > 0) {
-            document.getElementById('seekBar').value = (current / total) * 100;
-            document.getElementById('currentTime').innerText = formatTime(current);
-            document.getElementById('duration').innerText = formatTime(total);
+      // Audio-only stream endpoint: Completely strips out YouTube video ads
+      audio.src = `https://pipedapi.kavin.rocks/streams/${id}`;
+      
+      // Fetch direct audio file link
+      fetch(`https://pipedapi.kavin.rocks/streams/${id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.audioStreams && data.audioStreams.length > 0) {
+            audio.src = data.audioStreams[0].url; // Highest quality ad-free audio stream
+            audio.play();
+            playBtn.innerText = "⏸ Pause";
           }
-        }
-      }, 1000);
+        })
+        .catch(() => {
+          alert("Could not load audio for this track. Try another song.");
+        });
     }
+
+    function togglePlay() {
+      if (!audio.src) return;
+      if (audio.paused) {
+        audio.play();
+        playBtn.innerText = "⏸ Pause";
+      } else {
+        audio.pause();
+        playBtn.innerText = "▶ Play";
+      }
+    }
+
+    function setVolume(val) { audio.volume = val / 100; }
+    function seekAudio(val) { if (audio.duration) audio.currentTime = (audio.duration * val) / 100; }
+
+    audio.ontimeupdate = () => {
+      if (audio.duration) {
+        document.getElementById('seekBar').value = (audio.currentTime / audio.duration) * 100;
+        document.getElementById('currentTime').innerText = formatTime(audio.currentTime);
+        document.getElementById('duration').innerText = formatTime(audio.duration);
+      }
+    };
 
     function formatTime(sec) {
       const m = Math.floor(sec / 60);
