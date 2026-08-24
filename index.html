@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Music Player</title>
+  <style>
+    body {
+      background-color: #121212;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .container {
+      text-align: center;
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    }
+    input {
+      padding: 10px;
+      width: 250px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      margin-right: 8px;
+    }
+    button {
+      padding: 10px 16px;
+      border-radius: 6px;
+      border: none;
+      background: #1db954;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    iframe {
+      margin-top: 20px;
+      border-radius: 8px;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2>YouTube Audio/Video Player</h2>
+    <input type="text" id="videoUrl" placeholder="Paste YouTube link or Video ID...">
+    <button onclick="playMusic()">Play</button>
+    
+    <div id="playerContainer"></div>
+  </div>
+
+  <script>
+    function playMusic() {
+      const urlInput = document.getElementById('videoUrl').value.trim();
+      let videoId = urlInput;
+
+      // Extract ID if a full YouTube URL is pasted
+      if (urlInput.includes('v=')) {
+        videoId = urlInput.split('v=')[1].split('&')[0];
+      } else if (urlInput.includes('youtu.be/')) {
+        videoId = urlInput.split('youtu.be/')[1].split('?')[0];
+      }
+
+      if (videoId) {
+        document.getElementById('playerContainer').innerHTML = `
+          <iframe 
+            width="320" 
+            height="180" 
+            src="https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1" 
+            allow="autoplay; encrypted-media" 
+            allowfullscreen>
+          </iframe>
+        `;
+      }
+    }
+  </script>
+
+</body>
+</html>
